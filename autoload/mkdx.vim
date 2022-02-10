@@ -887,7 +887,7 @@ endfun
 fun! s:util.ToggleLineType(line, type)
   if (empty(a:line)) | return a:line | endif
 
-  let li_re = '\([0-9.]\+\|[' . join(g:mkdx#settings.tokens.enter, '') . ']\) '
+  let li_re = '\([0-9.]\+\|[' . join(g:mkdx#settings.tokens.enter, '') . ']\) \+'
   let li_st = '^ *' . li_re
   let repl  = ['', '', '']
 
@@ -895,15 +895,21 @@ fun! s:util.ToggleLineType(line, type)
     let repl = (match(a:line, li_st) > -1 ? ['^\( *\)' . li_re, '\1', ''] : ['^\( *\)', '\1' . g:mkdx#settings.tokens.list . ' ', ''])
     return substitute(a:line, repl[0], repl[1], repl[2])
   elseif (a:type == 'checkbox' || a:type == 'checklist')
-    let repl = (match(a:line, '^ *\[.\]') > -1
-                  \ ? ['^\( *\)\[.\] *', '\1', '']
-                  \ : (match(a:line, li_st . '\[.\]') > -1
-                        \ ? ['^\( *\)' . li_re . '\(\[.\]\) ', (a:type == 'checklist' ? '\1' : '\1\2 '), '']
-                        \ : (match(a:line, li_st) > -1
-                              \ ? ['^\( *\)' . li_re, '\1\2 [' . g:mkdx#settings.checkbox.initial_state . '] ', '']
-                              \ : ['^\( *\)', '\1' . (a:type == 'checklist' ? g:mkdx#settings.tokens.list . ' ' : '') . '[' . g:mkdx#settings.checkbox.initial_state . '] ', ''])))
+    if match(a:line, '^ *\[.\]') > -1
+      " Checkbox to line.
+      let repl = ['^\( *\)\[.\] *', '\1', '']
+    elseif match(a:line, li_st . '\[.\]') > -1
+      " Checklist item to item.
+      let repl = ['^\( *\)' . li_re . '\(\[.\]\) ', (a:type == 'checklist' ? '\1' : '\1\2   '), '']
+    elseif match(a:line, li_st) > -1
+      " List item to checklist item.
+      let repl = ['^\( *\)' . li_re, '\1\2   [' . g:mkdx#settings.checkbox.initial_state . '] ', '']
+    else
+      " Line to checkbox.
+      let repl = ['^\( *\)', '\1' . (a:type == 'checklist' ? g:mkdx#settings.tokens.list . ' ' : '') . '[' . g:mkdx#settings.checkbox.initial_state . '] ', '']
+    endif
   elseif (a:type == 'off')
-    let repl = ['^\( *\)\(' . li_re . ' \?\)\?\(\[.\]\)\? *', '\1', '']
+    let repl = ['^\( *\)\(' . li_re . ' \?\)\?\( *\[.\]\)\? *', '\1', '']
   endif
 
   return substitute(a:line, repl[0], repl[1], repl[2])
@@ -1883,7 +1889,9 @@ fun! mkdx#EnterHandler()
     let lnum      = line('.')
     let cnum      = virtcol('.')
     let indent    = indent(lnum)
-    let sp_pat    = '^>\? *\(\([0-9.]\+\|[' . join(g:mkdx#settings.tokens.enter, '') . ']\)\( \[.\]\)\? \|\[.\]\)'
+    " Matches left-aligned quotes, ordered lists, unordered lists (see
+    " tokens.enter), and stand-alone checkboxes.
+    let sp_pat    = '^>\? *\(\([0-9.]\+\|[' . join(g:mkdx#settings.tokens.enter, '') . ']\)\( *\[.\]\)\? \|\[.\]\)'
     let after_inl = 0
     let inl_ind   = 0
     let tmp_lnum  = lnum - 1
@@ -1933,15 +1941,18 @@ fun! mkdx#EnterHandler()
     if (after_inl)                     | setlocal noautoindent                                                      | endif
     if (remove)                        | call setline('.', '')                                                      | endif
     if (upd_tl)                        | call call(s:util.UpdateTaskList, tl_prms)                                  | endif
+    " End of list.
     if (remove)                        | return ''                                                                  | endif
     if ((match(line, '^ *\*\*') > -1)) | return "\n" . qu_str                                                       | endif
     if (tcb)                           | return "\n" . qu_str . '[' . g:mkdx#settings.checkbox.initial_state . '] ' | endif
 
+    " TODO: Configure the amount of whitespace after the unorderd list token.
     let result = ["\n",
       \ qu_str,
-      \ (match(t, '[0-9.]\+') > -1 ? s:util.NextListNumber(t, incr > -1 ? incr : 0) : t),
+      \ (match(t, '[0-9.]\+') > -1 ? s:util.NextListNumber(t, incr > -1 ? incr : 0) : t . (!empty(t) ? '  ' : '')),
       \ (cb ? ' [' . g:mkdx#settings.checkbox.initial_state . '] ' : (!empty(t) ? ' ' : ''))]
 
+    " Construct the new list item.
     return join(result, '')
   endif
 
@@ -2165,7 +2176,6 @@ endfunction
 fun! mkdx#gf_visual(...)
   let mode = get(a:000, 0, 'f')
   let do_ext = !g:mkdx#settings.gf_on_steroids && mode ==? 'x'
-  let do_int = !g:mkdx#settings.gf_on_steroids && mode ==? 'f'
 
   let destination = substitute(s:util.get_visual_selection(), "\n", '', 'g')
   let is_img      = match(get(split(destination, '\.'), -1, ''), g:mkdx#settings.image_extension_pattern) > -1
@@ -2175,7 +2185,7 @@ fun! mkdx#gf_visual(...)
   if !do_int && (do_ext || destination =~? '^http' || is_img || !is_plain)
     let cmd = executable('open') ? 'open' : (executable('xdg-open') ? 'xdg-open' : '')
     if (!empty(cmd))
-      silent! exec '!' . cmd . ' ' . shellescape(substitute(destination, '#', '\\#', 'g')) . '>/dev/null'
+      call system(cmd . ' ' . shellescape(substitute(destination, '#', '\\#', 'g')) . '>/dev/null')
       redraw!
     endif
   elseif (filereadable(destination))
@@ -2202,7 +2212,7 @@ fun! mkdx#gf(...)
       if !do_int && (do_ext || destination =~? '^http' || is_img || !is_plain)
         let cmd = executable('open') ? 'open' : (executable('xdg-open') ? 'xdg-open' : '')
         if (!empty(cmd))
-          silent! exec '!' . cmd . ' ' . shellescape(substitute(destination, '#', '\\#', 'g')) . '>/dev/null'
+          call system(cmd . ' ' . shellescape(substitute(destination, '#', '\\#', 'g')) . '>/dev/null')
           redraw!
         endif
       else

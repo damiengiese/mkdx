@@ -105,7 +105,7 @@ endif
 
 if hlexists('htmlStrike')
     highlight default link mkdxStrikeThrough htmlStrike
-    syn region mkdxStrikeThrough matchgroup=markdownStrikeThroughDelimiter start="\S\@<=\~\~\|\~\~\S\@=" end="\S\@<=\~\~\|\~\~\S\@=" keepend contains=markdownLineStart
+    syn region mkdxStrikeThrough matchgroup=markdownStrikeThroughDelimiter start="\S\@<=\~\~\|\~\~\S\@=" end="\S\@<=\~\~\|\~\~\S\@=" keepend concealends contains=markdownLineStart
 endif
 
 if (mkdx#in_rtp('syntax/yaml.vim') && g:mkdx#settings.highlight.frontmatter.yaml)
